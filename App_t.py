@@ -99,7 +99,6 @@ ASPECT_RATIOS = {
     "3:4 Portrait": (1140, 1472)
 }
 
-## MODIFIED: The generate function now handles both preset and custom resolutions.
 def generate(
     user_prompt,
     style_suffix,
@@ -151,7 +150,6 @@ def generate(
     image.save(output_path)
     return output_path, seed
 
-## ADDED: This function dynamically shows/hides UI elements based on the resolution mode.
 def update_resolution_controls(mode):
     is_preset = (mode == "Preset")
     return {
@@ -166,14 +164,13 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
                 <h2 style="font-size: 30px;text-align: center;">Qwen-Image</h2>
             </div>
             """)
-    with gr.TabItem("Qwen-Image Text-to-Image"):
+    with gr.TabItem("Text-2-Image"):
         with gr.Row():
             with gr.Column():
-                ## MODIFIED: UI elements re-ordered and new ones added.
                 prompt = gr.Textbox(label="Your Prompt (What you want to see)", value="A majestic lion king on a cliff overlooking the savannah")
                 style_suffix = gr.Textbox(label="Style Modifiers (Appended to your prompt)", value="Ultra HD, 4K, cinematic composition")
                 negative_prompt = gr.Textbox(label="Negative Prompt", value="lowres, bad anatomy, bad hands, cropped, worst quality")
-                
+
                 with gr.Group():
                     resolution_mode = gr.Radio(
                         label="Resolution Mode",
@@ -184,17 +181,17 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
                         label="Aspect Ratio",
                         choices=list(ASPECT_RATIOS.keys()),
                         value="16:9 Landscape",
-                        visible=True  # Visible by default
+                        visible=True
                     )
                     custom_width = gr.Slider(
                         label="Custom Width",
                         minimum=256, maximum=2656, step=32, value=1328,
-                        visible=False # Hidden by default
+                        visible=False
                     )
                     custom_height = gr.Slider(
                         label="Custom Height",
                         minimum=256, maximum=2656, step=32, value=1328,
-                        visible=False # Hidden by default
+                        visible=False
                     )
 
                 num_inference_steps = gr.Slider(label="Sampling Steps", minimum=1, maximum=100, step=1, value=50)
@@ -205,14 +202,23 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
                 image_output = gr.Image(label="Generated Image")
                 seed_output = gr.Textbox(label="Seed")
 
-    ## ADDED: Event listener to change UI visibility when resolution mode is toggled.
+
+    with gr.TabItem("Image-2-image Edit"):
+        gr.Markdown(
+            """
+            <div style='display: flex; justify-content: center; align-items: center; height: 50vh;'>
+                <h2 style='font-size: 24px; color: #888;'>Waiting to be release...https://github.com/QwenLM/Qwen-Image/issues/3#issuecomment-3151573614</h2>
+            </div>
+            """
+        )
+
+
     resolution_mode.change(
         fn=update_resolution_controls,
         inputs=resolution_mode,
         outputs=[aspect_ratio, custom_width, custom_height]
     )
 
-    ## MODIFIED: The click event now passes all the new UI components to the `generate` function.
     generate_button.click(
         fn=generate,
         inputs=[
