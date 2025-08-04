@@ -24,6 +24,33 @@ We are thrilled to release **Qwen-Image**, a 20B MMDiT image foundation model th
 - The editing version of Qwen-Image will be released soon. Stay tuned!
 - Due to heavy traffic, if you'd like to experience our demo online, we also recommend visiting DashScope, WaveSpeed, and LibLib. Please find the links below in the community support.
 
+
+## Start with the App
+
+
+✅ Install using Miniconda or Anaconda:
+
+```
+git clone https://github.com/tpc2233/Qwen-Image.git
+cd 
+
+conda create -n QwenImage python=3.12.9 -y 
+conda activate QwenImage
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 
+pip install -r requirements.txt
+```
+
+✅ Run the App:
+
+```
+python App_t.py
+```
+
+
+
+
+
+
 ## Quick Start
 
 1. Make sure your transformers>=4.51.3 (Supporting Qwen2.5-VL)
@@ -213,5 +240,6 @@ If you'd like to get in touch with our research team, we'd love to hear from you
 If you have questions about this repository, feedback to share, or want to contribute directly, we welcome your issues and pull requests on GitHub. Your contributions help make Qwen-Image better for everyone. 
 
 If you're passionate about fundamental research, we're hiring full-time employees (FTEs) and research interns. Don't wait — reach out to us at fulai.hr@alibaba-inc.com
+
 
 
