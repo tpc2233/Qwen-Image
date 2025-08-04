@@ -47,6 +47,7 @@ python App_t.py
 ```
 
 
+![App_t](https://github.com/user-attachments/assets/7236429e-d9b7-4258-af19-a361210ea01d)
 
 
 
@@ -240,6 +241,7 @@ If you'd like to get in touch with our research team, we'd love to hear from you
 If you have questions about this repository, feedback to share, or want to contribute directly, we welcome your issues and pull requests on GitHub. Your contributions help make Qwen-Image better for everyone. 
 
 If you're passionate about fundamental research, we're hiring full-time employees (FTEs) and research interns. Don't wait — reach out to us at fulai.hr@alibaba-inc.com
+
 
 
 
