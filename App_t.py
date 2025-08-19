@@ -69,7 +69,6 @@ args = parser.parse_args()
 
 if torch.cuda.is_available():
     device = "cuda"
-    # Use bfloat16 for Ampere architecture and newer, float16 for older.
     if torch.cuda.get_device_capability()[0] >= 8:
         dtype = torch.bfloat16
     else:
@@ -101,7 +100,6 @@ else: # 'low' vram mode
 
 print("Text-to-Image pipeline loaded successfully.")
 
-# We will load the Edit pipeline "lazily" (on first use) to save VRAM on startup
 edit_pipe = None
 print("Image-Edit pipeline will be loaded on first use.")
 
@@ -118,48 +116,27 @@ ASPECT_RATIOS = {
 
 # --- Text-to-Image Generation Function ---
 def generate(
-    user_prompt,
-    style_suffix,
-    negative_prompt,
-    resolution_mode,
-    aspect_ratio_key,
-    custom_width,
-    custom_height,
-    num_inference_steps,
-    guidance_scale,
-    seed_param,
+    user_prompt, style_suffix, negative_prompt, resolution_mode, aspect_ratio_key,
+    custom_width, custom_height, num_inference_steps, guidance_scale, seed_param,
 ):
     prompt_parts = []
-    if user_prompt:
-        prompt_parts.append(user_prompt.strip())
-    if style_suffix:
-        prompt_parts.append(style_suffix.strip())
+    if user_prompt: prompt_parts.append(user_prompt.strip())
+    if style_suffix: prompt_parts.append(style_suffix.strip())
     prompt = ", ".join(filter(None, prompt_parts))
 
-    if resolution_mode == "Preset":
-        width, height = ASPECT_RATIOS[aspect_ratio_key]
-    else:
-        width, height = custom_width, custom_height
+    if resolution_mode == "Preset": width, height = ASPECT_RATIOS[aspect_ratio_key]
+    else: width, height = custom_width, custom_height
 
-    if seed_param < 0:
-        seed = random.randint(0, MAX_SEED)
-    else:
-        seed = int(seed_param)
+    if seed_param < 0: seed = random.randint(0, MAX_SEED)
+    else: seed = int(seed_param)
 
     generator = torch.Generator(device=device).manual_seed(seed)
 
     print(f"T2I Generating: '{prompt}'")
     print(f"Dimensions: {width}x{height}, Steps: {num_inference_steps}, CFG: {guidance_scale}, Seed: {seed}")
 
-    image = pipe(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        width=width,
-        height=height,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale,
-        generator=generator
-    ).images[0]
+    image = pipe(prompt=prompt, negative_prompt=negative_prompt, width=width, height=height,
+                 num_inference_steps=num_inference_steps, guidance_scale=guidance_scale, generator=generator).images[0]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = f"outputs/{timestamp}_{seed}_t2i.png"
@@ -167,48 +144,28 @@ def generate(
     return output_path, seed
 
 # --- Image-to-Image Edit Function ---
-def generate_edit(
-    input_image,
-    edit_prompt,
-    num_inference_steps,
-    guidance_scale,
-    seed_param
-):
-    global edit_pipe # Use the global variable for the pipeline
+def generate_edit(input_image, edit_prompt, num_inference_steps, guidance_scale, seed_param):
+    global edit_pipe
 
-    # Lazy loading: If the pipeline isn't loaded yet, load it now.
     if edit_pipe is None:
         print(f"Loading Image-Edit pipeline for the first time from '{local_edit_model_path}'...")
-        edit_pipe = QwenImageEditPipeline.from_pretrained(
-            local_edit_model_path,
-            torch_dtype=dtype # Use the same dtype as the T2I pipe
-        )
+        edit_pipe = QwenImageEditPipeline.from_pretrained(local_edit_model_path, torch_dtype=dtype)
         edit_pipe.to(device)
-        # Always enable cpu offload for the edit pipe to conserve VRAM
         edit_pipe.enable_model_cpu_offload()
         print("Image-Edit pipeline loaded successfully.")
 
-    if input_image is None:
-        raise gr.Error("You must upload an input image for editing.")
+    if input_image is None: raise gr.Error("You must upload an input image for editing.")
 
-    if seed_param < 0:
-        seed = random.randint(0, MAX_SEED)
-    else:
-        seed = int(seed_param)
+    if seed_param < 0: seed = random.randint(0, MAX_SEED)
+    else: seed = int(seed_param)
 
     generator = torch.Generator(device=device).manual_seed(seed)
 
     print(f"Image Edit Generating: '{edit_prompt}'")
     print(f"Steps: {num_inference_steps}, CFG: {guidance_scale}, Seed: {seed}")
 
-    output = edit_pipe(
-        image=input_image.convert("RGB"), # Ensure image is in RGB format
-        prompt=edit_prompt,
-        generator=generator,
-        true_cfg_scale=guidance_scale,
-        negative_prompt=" ", # As per example
-        num_inference_steps=num_inference_steps,
-    )
+    output = edit_pipe(image=input_image.convert("RGB"), prompt=edit_prompt, generator=generator,
+                       true_cfg_scale=guidance_scale, negative_prompt=" ", num_inference_steps=num_inference_steps)
     output_image = output.images[0]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -217,14 +174,61 @@ def generate_edit(
 
     return output_path, seed
 
-
 def update_resolution_controls(mode):
     is_preset = (mode == "Preset")
-    return {
-        aspect_ratio: gr.update(visible=is_preset),
-        custom_width: gr.update(visible=not is_preset),
-        custom_height: gr.update(visible=not is_preset),
+    return { aspect_ratio: gr.update(visible=is_preset), custom_width: gr.update(visible=not is_preset),
+             custom_height: gr.update(visible=not is_preset) }
+
+# ############################################### #
+# ### NEW CODE: PRESETS AND DROPDOWN LOGIC    ### #
+# ############################################### #
+
+# --- Define Presets ---
+_PRESET_PLACEHOLDER = "--- Select a preset to add ---"
+
+T2I_PRESETS = {
+    "Quality": {
+        "Cinematic": "cinematic, dramatic lighting, high detail, sharp focus",
+        "Photorealistic": "photorealistic, 8K, UHD, professional photography, high resolution",
+        "Anime / Illustration": "anime style, vibrant colors, clean line art, detailed illustration",
+        "Fantasy Art": "fantasy art, epic, detailed, magical, ethereal lighting",
+    },
+    "Style": {
+        "Cyberpunk": "cyberpunk, neon lights, futuristic city, dystopian",
+        "Steampunk": "steampunk, gears, brass, Victorian era, mechanical",
+        "Watercolor": "watercolor painting, soft edges, vibrant, artistic",
+        "Oil Painting": "oil painting, textured brushstrokes, classical, rich colors",
     }
+}
+
+EDIT_PRESETS = {
+    _PRESET_PLACEHOLDER: _PRESET_PLACEHOLDER,
+    "Add / Replace": "Add a [object] in the [position], [description]",
+    "Replace Object": "Replace [original object] with [new object]",
+    "Change Background": "Change the background to [new background description], keeping the main subject unchanged",
+    "Modify Person": "Replace the person's [item] with a [new item]; keep [feature 1], and [feature 2] unchanged",
+    "Add Text": 'Add text "[your text]" at the [position] with [style]',
+    "Replace Text": 'Replace "original text" with "new text"',
+    "Apply Style (Disco)": "1970s disco style: flashing lights, disco ball, mirrored walls, colorful tones",
+    "Restore Old Photo": "Restore old photograph, remove scratches, reduce noise, enhance details, high resolution, realistic, natural skin tones, clear facial features, no distortion, vintage photo restoration"
+}
+
+# --- Dropdown Logic Function ---
+def update_prompt_with_preset(current_prompt, preset_text):
+    if preset_text == _PRESET_PLACEHOLDER:
+        return current_prompt # Do nothing if the placeholder is selected
+
+    if current_prompt and not current_prompt.isspace():
+        # Append with a comma if there's existing text
+        return f"{current_prompt}, {preset_text}"
+    else:
+        # Otherwise, just use the preset text
+        return preset_text
+
+# ############################################### #
+# ### END OF NEW CODE SECTION                 ### #
+# ############################################### #
+
 
 with gr.Blocks(theme=gr.themes.Base()) as demo:
     gr.Markdown("""
@@ -237,21 +241,19 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
             with gr.Column():
                 prompt = gr.Textbox(label="Your Prompt (What you want to see)", value="A majestic lion king on a cliff overlooking the savannah")
                 style_suffix = gr.Textbox(label="Style Modifiers (Appended to your prompt)", value="Ultra HD, 4K, cinematic composition")
+
+                # --- NEW: T2I Preset Dropdowns ---
+                with gr.Row():
+                    t2i_quality_preset = gr.Dropdown(label="Add Quality Preset", choices=list(T2I_PRESETS["Quality"].values()), value=None)
+                    t2i_style_preset = gr.Dropdown(label="Add Style Preset", choices=list(T2I_PRESETS["Style"].values()), value=None)
+
                 negative_prompt = gr.Textbox(label="Negative Prompt", value="lowres, bad anatomy, bad hands, cropped, worst quality")
 
                 with gr.Group():
-                    resolution_mode = gr.Radio(
-                        label="Resolution Mode", choices=["Preset", "Custom"], value="Preset"
-                    )
-                    aspect_ratio = gr.Radio(
-                        label="Aspect Ratio", choices=list(ASPECT_RATIOS.keys()), value="16:9 Landscape", visible=True
-                    )
-                    custom_width = gr.Slider(
-                        label="Custom Width", minimum=256, maximum=2656, step=32, value=1328, visible=False
-                    )
-                    custom_height = gr.Slider(
-                        label="Custom Height", minimum=256, maximum=2656, step=32, value=1328, visible=False
-                    )
+                    resolution_mode = gr.Radio(label="Resolution Mode", choices=["Preset", "Custom"], value="Preset")
+                    aspect_ratio = gr.Radio(label="Aspect Ratio", choices=list(ASPECT_RATIOS.keys()), value="16:9 Landscape", visible=True)
+                    custom_width = gr.Slider(label="Custom Width", minimum=256, maximum=2656, step=32, value=1328, visible=False)
+                    custom_height = gr.Slider(label="Custom Height", minimum=256, maximum=2656, step=32, value=1328, visible=False)
 
                 num_inference_steps = gr.Slider(label="Sampling Steps", minimum=1, maximum=100, step=1, value=50)
                 guidance_scale = gr.Slider(label="CFG Scale", minimum=1, maximum=10, step=0.1, value=4.0)
@@ -265,9 +267,17 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
         with gr.Row():
             with gr.Column():
                 edit_input_image = gr.Image(label="Input Image", type="pil", height=400)
-                edit_prompt = gr.Textbox(label="Edit Prompt (e.g., 'Change the sky to a starry night')", value="Change the rabbit's color to purple, with a flash light background.")
+                edit_prompt = gr.Textbox(label="Edit Prompt", value="Change the rabbit's color to purple, with a flash light background.")
+
+                # --- NEW: Edit Preset Dropdown ---
+                edit_preset_dropdown = gr.Dropdown(
+                    label="Add Edit Instruction Preset",
+                    choices=list(EDIT_PRESETS.values()),
+                    value=_PRESET_PLACEHOLDER # Set default value
+                )
+
                 edit_num_steps = gr.Slider(label="Sampling Steps", minimum=1, maximum=100, step=1, value=50)
-                edit_cfg_scale = gr.Slider(label="CFG Scale", minimum=1, maximum=10, step=0.1, value=4.0)
+                edit_cfg_scale = gr.Slider(label="CFG Scale (True CFG)", minimum=1, maximum=10, step=0.1, value=4.0)
                 edit_seed = gr.Number(label="Seed (-1 for random)", value=-1, precision=0)
                 edit_generate_button = gr.Button("🎨 Generate Edit", variant='primary')
             with gr.Column():
@@ -276,35 +286,41 @@ with gr.Blocks(theme=gr.themes.Base()) as demo:
 
 
     # --- Event Listeners ---
-    resolution_mode.change(
-        fn=update_resolution_controls,
-        inputs=resolution_mode,
-        outputs=[aspect_ratio, custom_width, custom_height]
-    )
+    resolution_mode.change(fn=update_resolution_controls, inputs=resolution_mode, outputs=[aspect_ratio, custom_width, custom_height])
 
     generate_button.click(
         fn=generate,
-        inputs=[
-            prompt, style_suffix, negative_prompt, resolution_mode, aspect_ratio,
-            custom_width, custom_height, num_inference_steps, guidance_scale, seed_param,
-        ],
+        inputs=[prompt, style_suffix, negative_prompt, resolution_mode, aspect_ratio,
+                custom_width, custom_height, num_inference_steps, guidance_scale, seed_param],
         outputs=[image_output, seed_output]
     )
 
     edit_generate_button.click(
         fn=generate_edit,
-        inputs=[
-            edit_input_image, edit_prompt, edit_num_steps, edit_cfg_scale, edit_seed
-        ],
+        inputs=[edit_input_image, edit_prompt, edit_num_steps, edit_cfg_scale, edit_seed],
         outputs=[edit_image_output, edit_seed_output]
     )
 
+    # --- NEW: Dropdown Event Listeners ---
+    t2i_quality_preset.change(
+        fn=update_prompt_with_preset,
+        inputs=[style_suffix, t2i_quality_preset],
+        outputs=style_suffix
+    )
+    t2i_style_preset.change(
+        fn=update_prompt_with_preset,
+        inputs=[style_suffix, t2i_style_preset],
+        outputs=style_suffix
+    )
+    edit_preset_dropdown.change(
+        fn=update_prompt_with_preset,
+        inputs=[edit_prompt, edit_preset_dropdown],
+        outputs=edit_prompt
+    ).then(
+        lambda: gr.update(value=_PRESET_PLACEHOLDER), # Reset dropdown after selection
+        outputs=edit_preset_dropdown
+    )
 
 if __name__ == "__main__":
     print("Starting Gradio interface...")
-    demo.launch(
-        server_name=args.server_name,
-        server_port=args.server_port,
-        share=args.share,
-        inbrowser=True,
-    )
+    demo.launch(server_name=args.server_name, server_port=args.server_port, share=args.share, inbrowser=True)
